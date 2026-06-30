@@ -6,6 +6,7 @@
   "workspaces": ["shared", "server"],
   "scripts": {
     "build": "npm run build -w @mahjong/shared && npm run build -w @mahjong/server",
+    "dev": "npm run build -w @mahjong/shared && npm run build -w @mahjong/server && node --enable-source-maps server/dist/index.js",
     "test": "npm run test -w @mahjong/shared && npm run test -w @mahjong/server",
     "typecheck": "npm run typecheck -w @mahjong/shared && npm run typecheck -w @mahjong/server"
   },

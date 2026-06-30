@@ -10,6 +10,7 @@
  * - 敏感密钥仅存于服务端环境变量。
  */
 import { apiCall } from './api';
+import { APP_ENV } from '../config/index';
 
 /** 本地缓存的 key。 */
 const TOKEN_KEY = 'mahjong_session_token';
@@ -28,20 +29,22 @@ export interface PlayerInfo {
  * 确保已有有效 session token：
  * 1. 本地缓存命中 → 直接返回
  * 2. 缓存未命中 → 走登录流程 → 缓存 → 返回
+ *
+ * @param nickname 可选昵称（传入后用于 mock login）
  */
-export async function ensureAuth(): Promise<PlayerInfo> {
+export async function ensureAuth(nickname?: string): Promise<PlayerInfo> {
   const cached = readCachedPlayer();
   if (cached) return cached;
 
-  const info = await doLogin();
+  const info = await doLogin(nickname);
   cachePlayer(info);
   return info;
 }
 
 /** 强制重新登录（清除旧缓存）。 */
-export async function reLogin(): Promise<PlayerInfo> {
+export async function reLogin(nickname?: string): Promise<PlayerInfo> {
   clearCache();
-  const info = await doLogin();
+  const info = await doLogin(nickname);
   cachePlayer(info);
   return info;
 }
@@ -64,70 +67,50 @@ export function clearCache(): void {
 
 // ─── 内部 ──────────────────────────────────────────
 
-async function doLogin(): Promise<PlayerInfo> {
-  // 开发环境：mock login
-  if (!isProduction()) {
-    return mockLogin();
+async function doLogin(nickname?: string): Promise<PlayerInfo> {
+  // 开发环境：调用服务端 mock login；失败则 fallback 本地
+  if (APP_ENV === 'development') {
+    try {
+      return await serverMockLogin(nickname ?? 'Player');
+    } catch {
+      return localMockLogin(nickname ?? 'Player');
+    }
   }
   // 生产环境：wx.login → 服务端换 token
-  return wxLoginToServer();
+  return wxLoginToServer(nickname ?? '');
 }
 
-function isProduction(): boolean {
-  // 通过小程序环境判断；开发工具里 __wxConfig 可能不存在
-  try {
-    const accountInfo = (wx as any).getAccountInfoSync?.();
-    return accountInfo?.miniProgram?.envVersion === 'release';
-  } catch {
-    return false;
-  }
+/** 调用服务端 POST /api/login/mock。 */
+async function serverMockLogin(nickname: string): Promise<PlayerInfo> {
+  const result = await apiCall<{
+    playerId: string;
+    nickname: string;
+    avatarUrl: string;
+    sessionToken: string;
+  }>('/login/mock', { nickname });
+
+  return {
+    playerId: result.playerId,
+    nickname: result.nickname,
+    avatarUrl: result.avatarUrl,
+    sessionToken: result.sessionToken,
+  };
 }
 
-async function mockLogin(): Promise<PlayerInfo> {
-  // 先用缓存中 playerId 生成稳定 mock code
-  let mockCode: string;
-
-  try {
-    const cached = wx.getStorageSync(PLAYER_KEY) as PlayerInfo | undefined;
-    if (cached?.playerId) {
-      mockCode = `mock_${cached.playerId}`;
-    } else {
-      mockCode = `mock_${randomPlayerId()}`;
-    }
-  } catch {
-    mockCode = `mock_${randomPlayerId()}`;
-  }
-
-  const nickname = `玩家${Date.now().toString(36).slice(-4)}`;
-  const avatarUrl = '';
-
-  // 调用服务端 /auth/login（开发环境服务端走 mock）
-  try {
-    const result = await apiCall('/auth/login', {
-      code: mockCode,
-      nickname,
-      avatarUrl,
-    }) as { playerId: string; nickname: string; avatarUrl: string; sessionToken: string };
-
-    return {
-      playerId: result.playerId,
-      nickname: result.nickname,
-      avatarUrl: result.avatarUrl,
-      sessionToken: result.sessionToken,
-    };
-  } catch {
-    // 如果后端未启动，fallback 本地生成
-    const playerId = mockCode.startsWith('mock_') ? mockCode.slice(5) : mockCode;
-    return {
-      playerId,
-      nickname,
-      avatarUrl,
-      sessionToken: `local_${playerId}_${Date.now().toString(36)}`,
-    };
-  }
+/** 本地 fallback mock（服务端不可用时）。 */
+function localMockLogin(nickname: string): PlayerInfo {
+  // 注意：local fallback 生成的 token 仅在服务端不可用时作为临时使用
+  // token 格式为 "local_<playerId>_<timestamp>"，不会通过服务端的 verifyToken 验证
+  const playerId = `p_local_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+  return {
+    playerId,
+    nickname,
+    avatarUrl: '',
+    sessionToken: `local_${playerId}_${Date.now().toString(36)}`,
+  };
 }
 
-async function wxLoginToServer(): Promise<PlayerInfo> {
+async function wxLoginToServer(nickname: string): Promise<PlayerInfo> {
   return new Promise((resolve, reject) => {
     wx.login({
       success: async (res) => {
@@ -135,7 +118,7 @@ async function wxLoginToServer(): Promise<PlayerInfo> {
         try {
           const result = await apiCall('/auth/login', {
             code: res.code,
-            nickname: '',
+            nickname: nickname || '',
             avatarUrl: '',
           }) as { playerId: string; nickname: string; avatarUrl: string; sessionToken: string };
 
@@ -173,13 +156,4 @@ function readCachedPlayer(): PlayerInfo | null {
   } catch {
     return null;
   }
-}
-
-function randomPlayerId(): string {
-  const hex = '0123456789abcdef';
-  let id = '';
-  for (let i = 0; i < 12; i++) {
-    id += hex[Math.floor(Math.random() * hex.length)];
-  }
-  return id;
 }

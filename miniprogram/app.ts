@@ -2,18 +2,14 @@
  * 微信麻雀小程序应用入口。
  * 初始化全局数据与 WebSocket 生命周期占位。
  */
+import { WS_URL } from './config/index';
 
 App({
   globalData: {
-    /** 用户 session token（登录后写入）。 */
-    token: '',
+    /** WebSocket 服务器基地址（从 config 读取）。 */
+    wsBaseUrl: WS_URL,
     /** 当前语言/区域 */
-    locale: 'zh-CN',
-    /**
-     * WebSocket 服务器基地址。
-     * 开发环境连本地，生产环境改为云托管 wss 地址。
-     */
-    WS_BASE_URL: 'wss://localhost:8080',
+    locale: 'zh-CN' as const,
     /** ROUND_END 结算结果（game 页接收后写入，result 页读取后清空）。 */
     roundResult: null as any,
   },

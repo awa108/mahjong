@@ -13,8 +13,6 @@ import { mahjongSocket, SocketEvent, type SocketError } from '../../services/soc
 import { ensureAuth } from '../../services/auth';
 import type { ServerMessage } from '@mahjong/shared';
 
-const app = getApp<{ globalData: { WS_BASE_URL: string } }>();
-
 Page({
   data: {
     playerId: '',
@@ -56,8 +54,7 @@ Page({
   async doConnect() {
     try {
       const info = await ensureAuth();
-      const wsUrl = app.globalData.WS_BASE_URL;
-      mahjongSocket.connect(wsUrl, info.sessionToken);
+      mahjongSocket.connect(info.sessionToken);
     } catch (e: any) {
       this.setData({
         connecting: false,

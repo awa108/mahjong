@@ -24,6 +24,7 @@
  *   mahjongSocket.send({ type: 'PLAY_TILE', payload: { tile: { suit:'m', rank:1 } } });
  */
 import type { ClientMessage, ServerMessage, Tile } from '@mahjong/shared';
+import { WS_URL } from '../config/index';
 
 // ─── 类型 ─────────────────────────────────────────
 
@@ -133,14 +134,14 @@ export class MahjongSocket {
   /**
    * 连接到游戏服务器。
    *
-   * @param url    WebSocket 基地址，如 `wss://your-server.com`
-   * @param token  登录后获得的 sessionToken
+   * @param token 登录后获得的 sessionToken
+   * @param url   WebSocket 基地址，默认从 config 读取
    *
-   * 实际连接地址为 `{url}/ws?token={token}`。
+   * 实际连接地址为 `{url}?token={token}`。
    * 如果已有连接，先关闭旧连接。
    */
-  connect(url: string, token: string): void {
-    this.url = url;
+  connect(token: string, url?: string): void {
+    this.url = url ?? WS_URL;
     this.token = token;
     this.reconnectCount = 0;
     this.doConnect();
@@ -218,7 +219,7 @@ export class MahjongSocket {
     this.state = this.reconnectCount > 0 ? 'reconnecting' : 'connecting';
     this.emit(SocketEvent.STATE_CHANGE, this.state);
 
-    const wsUrl = `${this.url}/ws?token=${encodeURIComponent(this.token)}`;
+    const wsUrl = `${this.url}?token=${encodeURIComponent(this.token)}`;
     this.socket = wx.connectSocket({
       url: wsUrl,
       success: () => { /* onOpen 回调处理 */ },

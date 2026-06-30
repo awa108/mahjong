@@ -8,8 +8,6 @@
  */
 import { ensureAuth } from '../../services/auth';
 
-const app = getApp<{ globalData: { WS_BASE_URL: string; token: string } }>();
-
 Page({
   data: {
     nickname: '',

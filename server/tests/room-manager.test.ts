@@ -29,10 +29,10 @@ describe('createRoom', () => {
 
   it('generates unique room codes', async () => {
     const codes = new Set<string>();
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 50; i++) {
       codes.add((await rm.createRoom(`u${i}`, `Player${i}`)).roomCode);
     }
-    expect(codes.size).toBe(20);
+    expect(codes.size).toBe(50);
   });
 
   it('returns a different roomId each time', async () => {
@@ -155,6 +155,21 @@ describe('setReady', () => {
 
     const r2 = await rm.setReady(room.roomId, 'u1', false);
     expect(r2!.players[0]!.ready).toBe(false);
+  });
+
+  it('canStart returns false after a player toggles ready off', async () => {
+    const room = await rm.createRoom('u1', 'P1');
+    await rm.joinRoom(room.roomCode, 'u2', 'P2');
+    await rm.joinRoom(room.roomCode, 'u3', 'P3');
+    await rm.joinRoom(room.roomCode, 'u4', 'P4');
+
+    // All 4 players ready
+    for (const p of ['u1', 'u2', 'u3', 'u4']) await rm.setReady(room.roomId, p, true);
+    expect(await rm.canStart(room.roomId)).toBe(true);
+
+    // One player toggles ready off
+    await rm.setReady(room.roomId, 'u2', false);
+    expect(await rm.canStart(room.roomId)).toBe(false);
   });
 
   it('only affects the specified player', async () => {

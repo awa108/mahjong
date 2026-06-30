@@ -127,9 +127,9 @@ export class AuthService {
 
   // ── Token 签发 / 校验 ─────────────────────────
 
-  /** 签发 session token。 */
+  /** 签发 session token（纯随机，不嵌入 playerId）。 */
   signToken(playerId: string): string {
-    const token = `${playerId}-${Date.now().toString(36)}-${crypto.randomBytes(12).toString('hex')}`;
+    const token = crypto.randomBytes(24).toString('hex');
     this.sessions.set(token, {
       playerId,
       expires: Date.now() + this.sessionTtlMs,
@@ -160,6 +160,15 @@ export class AuthService {
   /** 吊销 token。 */
   revokeToken(token: string): void {
     this.sessions.delete(token);
+  }
+
+  /** 吊销某玩家所有 session token（断线时调用，防止 token 复用攻击）。 */
+  revokePlayerTokens(playerId: string): void {
+    for (const [token, entry] of this.sessions) {
+      if (entry.playerId === playerId) {
+        this.sessions.delete(token);
+      }
+    }
   }
 
   // ── Profile ───────────────────────────────────
