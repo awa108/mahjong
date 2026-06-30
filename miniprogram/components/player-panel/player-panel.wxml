@@ -1,0 +1,22 @@
+<!-- player-panel 玩家面板 -->
+<view class="player-panel
+  {{ isTurn ? 'turn' : '' }}
+  {{ isMe ? 'me' : '' }}
+  {{ !online ? 'offline' : '' }}"
+>
+  <view class="panel-header">
+    <view class="seat-badge">
+      <text>{{ seatName }}</text>
+    </view>
+    <text wx:if="{{ isDealer }}" class="dealer-tag">庄</text>
+    <view wx:if="{{ !online }}" class="offline-dot"></view>
+  </view>
+
+  <text class="nickname">{{ nickname || '--' }}</text>
+  <text class="score">{{ score }} 分</text>
+
+  <view class="panel-footer">
+    <text class="hand-count">手牌×{{ concealedCount }}</text>
+    <text wx:if="{{ isTurn }}" class="turn-indicator">出牌中</text>
+  </view>
+</view>

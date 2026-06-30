@@ -1,0 +1,115 @@
+/* game 对局页 - 牌桌深绿 + 手牌滚动 */
+
+.game-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #1a7a1e;
+}
+
+/* ── 断线提示 ────────────────────────── */
+
+.banner {
+  padding: 12rpx 24rpx;
+  font-size: 24rpx;
+  text-align: center;
+}
+
+.banner.error {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.banner.warn {
+  background: #fff3e0;
+  color: #e65100;
+}
+
+/* ── 牌桌 ────────────────────────────── */
+
+.table {
+  flex: 1;
+  padding: 12rpx 16rpx;
+  overflow-y: auto;
+}
+
+.opponents {
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+}
+
+.opponent-slot {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 12rpx;
+  padding: 10rpx 14rpx;
+}
+
+.opp-melds {
+  display: flex;
+  gap: 6rpx;
+  margin-top: 6rpx;
+  flex-wrap: wrap;
+}
+
+.meld-tag {
+  font-size: 20rpx;
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  padding: 2rpx 10rpx;
+  border-radius: 4rpx;
+}
+
+.meld-tag.me {
+  background: #ffd54f;
+  color: #333;
+}
+
+.my-melds {
+  display: flex;
+  gap: 6rpx;
+  padding: 8rpx 0;
+  flex-wrap: wrap;
+}
+
+/* ── 手牌 ────────────────────────────── */
+
+.hand-area {
+  background: #f8f8f8;
+  padding: 10rpx 16rpx;
+  border-top: 2rpx solid rgba(0, 0, 0, 0.1);
+}
+
+.hand-scroll {
+  white-space: nowrap;
+  padding: 6rpx 0;
+  display: flex;
+  gap: 6rpx;
+}
+
+.waiting-text {
+  font-size: 28rpx;
+  color: #999;
+  display: block;
+  padding: 20rpx;
+  text-align: center;
+}
+
+/* ── 底部信息栏 ──────────────────────── */
+
+.wall-info {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 8rpx 16rpx;
+  background: rgba(0, 0, 0, 0.15);
+  gap: 8rpx;
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.wall-info text {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.75);
+  line-height: 1;
+}

@@ -1,0 +1,218 @@
+/* result 结算页样式 */
+
+.result-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: #f5f5f5;
+  padding: 24rpx;
+  box-sizing: border-box;
+}
+
+/* ── 标题 ────────────────────────────── */
+
+.header {
+  text-align: center;
+  padding: 32rpx 0 24rpx;
+}
+
+.winner-banner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.winner-label {
+  font-size: 40rpx;
+  font-weight: 700;
+  color: #d32f2f;
+}
+
+.win-type {
+  font-size: 28rpx;
+  color: #e64a19;
+  font-weight: 500;
+}
+
+.draw-banner {
+  padding: 24rpx;
+}
+
+.draw-label {
+  font-size: 40rpx;
+  font-weight: 700;
+  color: #666;
+}
+
+/* ── 分数区 ──────────────────────────── */
+
+.scores-section {
+  background: #fff;
+  border-radius: 16rpx;
+  padding: 20rpx 24rpx;
+  margin-bottom: 20rpx;
+  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.06);
+}
+
+.section-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 16rpx;
+  padding-bottom: 12rpx;
+  border-bottom: 1rpx solid #eee;
+}
+
+.score-row {
+  display: flex;
+  align-items: center;
+  padding: 12rpx 0;
+  border-bottom: 1rpx solid #f0f0f0;
+}
+
+.score-row:last-child {
+  border-bottom: none;
+}
+
+.score-row.winner {
+  background: #fff3e0;
+  margin: 0 -24rpx;
+  padding-left: 24rpx;
+  padding-right: 24rpx;
+  border-radius: 8rpx;
+}
+
+.score-seat {
+  width: 48rpx;
+  height: 48rpx;
+  line-height: 48rpx;
+  text-align: center;
+  background: #eee;
+  border-radius: 8rpx;
+  font-size: 24rpx;
+  font-weight: 700;
+  color: #555;
+  margin-right: 12rpx;
+}
+
+.score-row.winner .score-seat {
+  background: #d32f2f;
+  color: #fff;
+}
+
+.score-name {
+  flex: 1;
+  font-size: 28rpx;
+  color: #333;
+  font-weight: 500;
+}
+
+.score-value {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #333;
+  margin-right: 16rpx;
+  min-width: 60rpx;
+  text-align: right;
+}
+
+.score-delta {
+  font-size: 24rpx;
+  font-weight: 600;
+  min-width: 60rpx;
+  text-align: right;
+}
+
+.score-delta.positive {
+  color: #4caf50;
+}
+
+.score-delta.negative {
+  color: #d32f2f;
+}
+
+/* ── 事件日志 ────────────────────────── */
+
+.events-section {
+  background: #fff;
+  border-radius: 16rpx;
+  padding: 20rpx 24rpx;
+  margin-bottom: 24rpx;
+  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.06);
+  flex: 1;
+}
+
+.event-list {
+  max-height: 400rpx;
+}
+
+.event-row {
+  display: flex;
+  align-items: center;
+  padding: 8rpx 0;
+  border-bottom: 1rpx solid #f5f5f5;
+}
+
+.event-row:last-child {
+  border-bottom: none;
+}
+
+.event-time {
+  width: 40rpx;
+  font-size: 22rpx;
+  color: #bbb;
+  text-align: center;
+}
+
+.event-desc {
+  flex: 1;
+  font-size: 26rpx;
+  color: #555;
+  padding-left: 12rpx;
+}
+
+.event-seat {
+  font-size: 22rpx;
+  color: #999;
+  background: #f0f0f0;
+  border-radius: 4rpx;
+  padding: 2rpx 12rpx;
+}
+
+.no-events {
+  font-size: 24rpx;
+  color: #bbb;
+  text-align: center;
+  padding: 20rpx;
+}
+
+/* ── 操作按钮 ────────────────────────── */
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+  padding-top: 8rpx;
+}
+
+.btn-back-room {
+  height: 96rpx;
+  line-height: 96rpx;
+  background: #d32f2f;
+  color: #fff;
+  font-size: 32rpx;
+  font-weight: 600;
+  border-radius: 16rpx;
+  border: none;
+}
+
+.btn-exit {
+  height: 88rpx;
+  line-height: 88rpx;
+  background: #eee;
+  color: #666;
+  font-size: 28rpx;
+  border-radius: 16rpx;
+  border: none;
+}

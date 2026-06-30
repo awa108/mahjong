@@ -1,0 +1,16 @@
+{
+  "name": "mahjong-miniapp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "可联网的微信麻将小程序 MVP — monorepo 根（npm workspaces 管理 shared 与 server）",
+  "workspaces": ["shared", "server"],
+  "scripts": {
+    "build": "npm run build -w @mahjong/shared && npm run build -w @mahjong/server",
+    "test": "npm run test -w @mahjong/shared && npm run test -w @mahjong/server",
+    "typecheck": "npm run typecheck -w @mahjong/shared && npm run typecheck -w @mahjong/server"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "usingComponents": {
+    "tile": "../../components/tile/tile",
+    "player-panel": "../../components/player-panel/player-panel",
+    "discard-river": "../../components/discard-river/discard-river",
+    "action-bar": "../../components/action-bar/action-bar"
+  }
+}

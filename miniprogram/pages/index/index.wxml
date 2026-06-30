@@ -1,0 +1,45 @@
+<!-- 首页：登录 & 进入大厅 -->
+<view class="page">
+  <view class="card">
+    <!-- 标题 -->
+    <view class="header">
+      <text class="logo">🀄</text>
+      <text class="title">麻将</text>
+      <text class="subtitle">休闲四人麻将 · 好友约局</text>
+    </view>
+
+    <!-- 昵称 -->
+    <view class="field">
+      <text class="label">昵称</text>
+      <input
+        class="input"
+        placeholder="选填，不填自动生成"
+        value="{{ nickname }}"
+        bindinput="onInputNickname"
+        maxlength="12"
+      />
+    </view>
+
+    <!-- 错误提示 -->
+    <view class="error-msg" wx:if="{{ error }}">
+      <text>{{ error }}</text>
+    </view>
+
+    <!-- 进入大厅 -->
+    <button
+      class="btn-primary"
+      bindtap="onEnterLobby"
+      loading="{{ loading }}"
+      disabled="{{ loading }}"
+    >
+      {{ loading ? '登录中…' : '进入大厅' }}
+    </button>
+  </view>
+
+  <!-- 底部说明 -->
+  <view class="footer">
+    <text>纯娱乐 · 不涉真钱</text>
+    <text class="footer-dot">·</text>
+    <text>权威防作弊</text>
+  </view>
+</view>

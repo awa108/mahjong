@@ -1,0 +1,64 @@
+<!-- lobby 大厅 — 创建/加入房间 -->
+<view class="page">
+
+  <!-- 连接状态 -->
+  <view class="status-bar" wx:if="{{ connecting }}">
+    <text class="status-text">正在连接服务器…</text>
+  </view>
+  <view class="status-bar connected" wx:elif="{{ !error }}">
+    <text class="status-dot"></text>
+    <text class="status-text">已连接</text>
+  </view>
+
+  <!-- 错误 -->
+  <view class="error-bar" wx:if="{{ error }}">
+    <text>{{ error }}</text>
+  </view>
+
+  <!-- 卡片区 -->
+  <view class="card">
+    <!-- 创建房间 -->
+    <view class="section">
+      <text class="section-title">创建房间</text>
+      <text class="section-desc">创建新房间，分享房间码邀请好友</text>
+      <button
+        class="btn-primary"
+        bindtap="onCreateRoom"
+        loading="{{ creating }}"
+        disabled="{{ creating || !!error }}"
+      >
+        创建房间
+      </button>
+    </view>
+
+    <!-- 分割线 -->
+    <view class="divider">
+      <view class="divider-line"></view>
+      <text class="divider-text">或</text>
+      <view class="divider-line"></view>
+    </view>
+
+    <!-- 加入房间 -->
+    <view class="section">
+      <text class="section-title">加入房间</text>
+      <view class="join-row">
+        <input
+          class="code-input"
+          placeholder="6 位房间码"
+          value="{{ roomCode }}"
+          bindinput="onInputRoomCode"
+          maxlength="6"
+        />
+        <button
+          class="btn-join"
+          bindtap="onJoinRoom"
+          loading="{{ joining }}"
+          disabled="{{ joining || !!error }}"
+        >
+          加入
+        </button>
+      </view>
+    </view>
+  </view>
+
+</view>

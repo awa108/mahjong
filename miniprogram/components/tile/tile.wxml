@@ -1,0 +1,13 @@
+<!-- tile 牌组件 -->
+<view
+  class="tile
+    {{ selected ? 'selected' : '' }}
+    {{ disabled ? 'disabled' : '' }}
+    {{ small ? 'small' : '' }}
+    {{ faceDown ? 'face-down' : '' }}"
+  data-suit="{{ suit }}"
+  data-rank="{{ rank }}"
+>
+  <text wx:if="{{ !faceDown }}">{{ displayName || name }}</text>
+  <text wx:else class="back-icon">🀫</text>
+</view>

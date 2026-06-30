@@ -1,0 +1,11 @@
+<!-- discard-river 弃牌河 -->
+<view class="river">
+  <tile
+    wx:for="{{ tiles }}"
+    wx:key="index"
+    suit="{{ item.suit }}"
+    rank="{{ item.rank }}"
+    small="{{ true }}"
+  />
+  <text wx:if="{{ !tiles.length }}" class="river-empty">暂无弃牌</text>
+</view>

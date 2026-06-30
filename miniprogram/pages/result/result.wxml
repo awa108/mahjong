@@ -1,0 +1,55 @@
+<!-- result 结算页 -->
+<view class="result-page">
+
+  <!-- 标题区 -->
+  <view class="header">
+    <view wx:if="{{ reason === 'win' }}" class="winner-banner">
+      <text class="winner-label">胜者：{{ scores[0].seatLabel }} 家</text>
+      <text class="win-type">({{ winType }})</text>
+    </view>
+    <view wx:else class="draw-banner">
+      <text class="draw-label">流局</text>
+    </view>
+  </view>
+
+  <!-- 分数变化 -->
+  <view class="scores-section">
+    <view class="section-title">分数变化</view>
+    <view
+      wx:for="{{ scores }}"
+      wx:key="seat"
+      class="score-row {{ item.isWinner ? 'winner' : '' }}"
+    >
+      <text class="score-seat">{{ item.seatLabel }}</text>
+      <text class="score-name">{{ item.nickname }}</text>
+      <text class="score-value">{{ item.score >= 0 ? '+' : '' }}{{ item.score }}</text>
+      <text class="score-delta {{ item.delta > 0 ? 'positive' : item.delta < 0 ? 'negative' : '' }}">
+        {{ item.delta > 0 ? '+' : '' }}{{ item.delta }}
+      </text>
+    </view>
+  </view>
+
+  <!-- 事件日志 -->
+  <view class="events-section">
+    <view class="section-title">本局事件</view>
+    <scroll-view scroll-y class="event-list">
+      <view
+        wx:for="{{ events }}"
+        wx:key="index"
+        class="event-row"
+      >
+        <text class="event-time">{{ index + 1 }}</text>
+        <text class="event-desc">{{ item.desc }}</text>
+        <text class="event-seat">{{ item.seatLabel }}</text>
+      </view>
+      <text wx:if="{{ !events.length }}" class="no-events">无事件记录</text>
+    </scroll-view>
+  </view>
+
+  <!-- 操作按钮 -->
+  <view class="actions">
+    <button class="btn-back-room" bindtap="onBackToRoom">返回房间再来一局</button>
+    <button class="btn-exit" bindtap="onExitToLobby">退出到大堂</button>
+  </view>
+
+</view>

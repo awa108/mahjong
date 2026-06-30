@@ -1,0 +1,52 @@
+/* tile 牌组件样式 */
+
+.tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 72rpx;
+  height: 96rpx;
+  background: #fff;
+  border: 2rpx solid #bbb;
+  border-radius: 8rpx;
+  font-size: 36rpx;
+  font-weight: 700;
+  color: #333;
+  box-shadow: 0 2rpx 6rpx rgba(0, 0, 0, 0.08);
+  transition: transform 0.15s, border-color 0.15s;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.tile.small {
+  width: 48rpx;
+  height: 64rpx;
+  font-size: 24rpx;
+  border-radius: 6rpx;
+  border-width: 1rpx;
+}
+
+.tile.selected {
+  transform: translateY(-24rpx);
+  border-color: #d32f2f;
+  box-shadow: 0 8rpx 20rpx rgba(211, 47, 47, 0.3);
+}
+
+.tile.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.tile.face-down {
+  background: linear-gradient(135deg, #1a5276, #2980b9);
+  border-color: #1a5276;
+  color: #fff;
+}
+
+.tile .back-icon {
+  font-size: 32rpx;
+}
+
+.tile.small .back-icon {
+  font-size: 20rpx;
+}

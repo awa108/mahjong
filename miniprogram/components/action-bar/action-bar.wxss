@@ -1,0 +1,70 @@
+/* action-bar 操作栏样式 */
+
+.action-bar {
+  display: flex;
+  gap: 10rpx;
+  padding: 12rpx 16rpx;
+  background: #fff;
+  border-top: 1rpx solid #eee;
+  flex-wrap: wrap;
+}
+
+.btn-action {
+  flex: 1;
+  min-width: 80rpx;
+  height: 80rpx;
+  line-height: 80rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+  border-radius: 12rpx;
+  border: none;
+  text-align: center;
+  padding: 0;
+}
+
+.btn-action[disabled] {
+  opacity: 0.4;
+}
+
+.btn-play {
+  background: #1976d2;
+  color: #fff;
+}
+
+.btn-draw {
+  background: #388e3c;
+  color: #fff;
+}
+
+.btn-chi {
+  background: #f57c00;
+  color: #fff;
+}
+
+.btn-peng {
+  background: #e64a19;
+  color: #fff;
+}
+
+.btn-gang {
+  background: #7b1fa2;
+  color: #fff;
+}
+
+.btn-hu {
+  background: #d32f2f;
+  color: #fff;
+}
+
+.btn-pass {
+  background: #9e9e9e;
+  color: #fff;
+}
+
+.no-actions {
+  font-size: 26rpx;
+  color: #999;
+  padding: 20rpx 0;
+  text-align: center;
+  width: 100%;
+}

@@ -1,0 +1,86 @@
+<!-- room 房间页 - 4 个座位、准备、开始、分享 -->
+<view class="page">
+
+  <!-- 断线提示 -->
+  <view class="banner error" wx:if="{{ disconnected }}">
+    <text>连接中断，正在重连…</text>
+  </view>
+  <view class="banner warn" wx:elif="{{ error }}">
+    <text>{{ error }}</text>
+  </view>
+
+  <!-- 顶部：房间码 + 分享 -->
+  <view class="top-bar">
+    <view class="room-code-box">
+      <text class="label">房间号</text>
+      <text class="code">{{ roomCode }}</text>
+    </view>
+    <button class="share-btn" open-type="share" size="mini">分享</button>
+  </view>
+
+  <!-- 4 个座位 -->
+  <view class="seat-grid">
+    <view
+      wx:for="{{ players }}"
+      wx:key="seat"
+      class="seat {{ item.empty ? 'empty' : '' }} {{ item.ready ? 'ready' : '' }} {{ item.playerId === myPlayerId ? 'me' : '' }}"
+    >
+      <!-- 座位号 -->
+      <view class="seat-label">
+        <text>{{ item.seat === 0 ? '东' : item.seat === 1 ? '南' : item.seat === 2 ? '西' : '北' }}</text>
+      </view>
+
+      <!-- 空位 -->
+      <block wx:if="{{ item.empty }}">
+        <text class="seat-empty-text">等待加入</text>
+      </block>
+
+      <!-- 有玩家 -->
+      <block wx:else>
+        <text class="seat-nickname">{{ item.nickname }}</text>
+        <view class="seat-status">
+          <text class="dot {{ item.online ? 'online' : 'offline' }}"></text>
+          <text>{{ item.online ? '在线' : '离线' }}</text>
+        </view>
+        <view class="ready-tag" wx:if="{{ item.ready }}">
+          <text>已准备</text>
+        </view>
+        <view class="ready-tag not-ready" wx:else>
+          <text>未准备</text>
+        </view>
+      </block>
+    </view>
+  </view>
+
+  <!-- 底部操作区 -->
+  <view class="bottom-bar">
+    <!-- 人数/准备提示 -->
+    <view class="info-row">
+      <text>{{ playerCount }}/4 人 · {{ readyCount }} 已准备</text>
+    </view>
+
+    <!-- 操作按钮 -->
+    <view class="action-row">
+      <button class="btn-leave" bindtap="onLeaveRoom">离开</button>
+
+      <button
+        class="btn-ready"
+        bindtap="onToggleReady"
+        disabled="{{ disconnected }}"
+      >
+        {{ myReady ? '取消准备' : '准备' }}
+      </button>
+
+      <button
+        wx:if="{{ isHost }}"
+        class="btn-start"
+        bindtap="onStartGame"
+        disabled="{{ !canStart || starting || disconnected }}"
+        loading="{{ starting }}"
+      >
+        {{ starting ? '发牌中…' : '开始' }}
+      </button>
+    </view>
+  </view>
+
+</view>

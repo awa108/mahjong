@@ -1,0 +1,23 @@
+# 依赖
+node_modules/
+
+# 构建产物
+dist/
+*.tsbuildinfo
+
+# 小程序构建
+miniprogram/miniprogram_npm/
+
+# 环境变量与密钥
+.env
+.env.local
+*.secret
+
+# 测试
+coverage/
+
+# IDE / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

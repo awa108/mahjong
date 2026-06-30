@@ -1,0 +1,15 @@
+/* discard-river 弃牌河样式 */
+
+.river {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4rpx;
+  padding: 6rpx 0;
+  min-height: 48rpx;
+  align-items: center;
+}
+
+.river-empty {
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.3);
+}

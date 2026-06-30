@@ -1,0 +1,20 @@
+{
+  "appid": "your-appid-here",
+  "projectname": "mahjong-miniapp",
+  "compileType": "miniprogram",
+  "libVersion": "3.6.0",
+  "packOptions": {
+    "ignore": [
+      { "type": "folder", "value": "node_modules" },
+      { "type": "file", "value": ".gitignore" }
+    ]
+  },
+  "setting": {
+    "es6": true,
+    "enhance": true,
+    "minified": true,
+    "urlCheck": false,
+    "checkSiteMap": false
+  },
+  "condition": {}
+}

@@ -1,0 +1,99 @@
+<!-- game 对局页 — 牌桌 + 手牌 + 操作栏 -->
+<view class="game-page">
+
+  <!-- 断线提示 -->
+  <view class="banner error" wx:if="{{ disconnected }}">
+    <text>连接中断，正在重连…</text>
+  </view>
+  <view class="banner warn" wx:elif="{{ error }}">
+    <text>{{ error }}</text>
+  </view>
+
+  <!-- 牌桌区：对手面板 + 牌河 -->
+  <view class="table">
+    <!-- 对手面板（3 个，非本家） -->
+    <view class="opponents">
+      <view
+        wx:for="{{ players }}"
+        wx:key="seat"
+        wx:if="{{ item.seat !== mySeat }}"
+        class="opponent-slot"
+      >
+        <player-panel
+          nickname="{{ item.nickname }}"
+          seat="{{ item.seat }}"
+          score="{{ item.score }}"
+          online="{{ item.online }}"
+          concealedCount="{{ item.concealedCount }}"
+          isDealer="{{ item.seat === dealer }}"
+          isTurn="{{ item.seat === turn }}"
+          isMe="{{ false }}"
+        />
+
+        <!-- 对手副露 -->
+        <view class="opp-melds" wx:if="{{ item.melds.length }}">
+          <text
+            wx:for="{{ item.melds }}"
+            wx:key="index"
+            wx:for-item="meld"
+            class="meld-tag"
+          >{{ meld.kind === 'chi' ? '吃' : meld.kind === 'pong' ? '碰' : '杠' }}</text>
+        </view>
+
+        <!-- 对手弃牌河 -->
+        <discard-river tiles="{{ item.discards }}" />
+      </view>
+    </view>
+
+    <!-- 本家副露 -->
+    <view class="my-melds" wx:if="{{ myMelds.length }}">
+      <text
+        wx:for="{{ myMelds }}"
+        wx:key="index"
+        wx:for-item="meld"
+        class="meld-tag me"
+      >{{ meld.kind === 'chi' ? '吃' : meld.kind === 'pong' ? '碰' : '杠' }}</text>
+    </view>
+  </view>
+
+  <!-- 手牌区（本家） -->
+  <view class="hand-area">
+    <scroll-view scroll-x class="hand-scroll" wx:if="{{ myHand.length }}">
+      <tile
+        wx:for="{{ myHand }}"
+        wx:key="id"
+        suit="{{ item.suit }}"
+        rank="{{ item.rank }}"
+        selected="{{ index === selectedIndex }}"
+        disabled="{{ !allowedActions.includes('PLAY_TILE') }}"
+        data-index="{{ index }}"
+        bind:tap="onTileTap"
+      />
+    </scroll-view>
+    <text wx:else class="waiting-text">等待发牌…</text>
+  </view>
+
+  <!-- 操作栏 — 完全由服务端 allowedActions 驱动 -->
+  <action-bar
+    allowedActions="{{ allowedActions }}"
+    bind:playtile="onPlayTile"
+    bind:chi="onChi"
+    bind:peng="onPeng"
+    bind:gang="onGang"
+    bind:hu="onHu"
+    bind:pass="onPass"
+  />
+
+  <!-- 底部信息栏 -->
+  <view class="wall-info">
+    <text>第 {{ roundNo }} 局 · 剩余 {{ wallRemaining }} 张</text>
+    <text wx:if="{{ lastDiscard }}"> · 刚出:
+      <tile
+        suit="{{ lastDiscard.suit }}"
+        rank="{{ lastDiscard.rank }}"
+        small="{{ true }}"
+      />
+    </text>
+  </view>
+
+</view>
