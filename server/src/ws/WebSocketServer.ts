@@ -57,8 +57,15 @@ export class MahjongWSServer {
 
   // ── 启动 ───────────────────────────────────────
 
-  listen(port: number): WebSocketServer {
-    this.wss = new WebSocketServer({ port });
+  constructor(wss?: WebSocketServer) {
+    if (wss) {
+      this.init(wss);
+    }
+  }
+
+  /** 将已有的 WebSocketServer 绑定到 MahjongWSServer。 */
+  init(wss: WebSocketServer): void {
+    this.wss = wss;
 
     this.wss.on('connection', (ws, req: IncomingMessage) => {
       this.onConnection(ws, req);
@@ -67,7 +74,12 @@ export class MahjongWSServer {
     // 定时心跳检查
     this.heartbeatTimer = setInterval(() => this.checkHeartbeats(), HEARTBEAT_INTERVAL_MS);
     if (this.heartbeatTimer.unref) this.heartbeatTimer.unref();
+  }
 
+  /** 创建独立的 WebSocketServer（独立端口，测试用）。 */
+  listen(port: number): WebSocketServer {
+    const wss = new WebSocketServer({ port });
+    this.init(wss);
     return this.wss;
   }
 
@@ -142,19 +154,19 @@ export class MahjongWSServer {
 
     const msg = parsed.value;
     switch (msg.type) {
-      case 'CREATE_ROOM':   return this.handleCreateRoom(ws, msg);
-      case 'JOIN_ROOM':     return this.handleJoinRoom(ws, msg);
-      case 'READY':         return this.handleReady(ws, msg);
-      case 'START_GAME':    return this.handleStartGame(ws, msg);
-      case 'PLAY_TILE':     return this.handlePlayTile(ws, msg);
-      case 'CHI':           return this.handleChi(ws, msg);
-      case 'PENG':          return this.handlePeng(ws, msg);
-      case 'GANG':          return this.handleGang(ws, msg);
-      case 'HU':            return this.handleHu(ws, msg);
-      case 'PASS':          return this.handlePass(ws, msg);
-      case 'RECONNECT':     return this.handleReconnect(ws, msg);
-      case 'HEARTBEAT':     return this.handleHeartbeat(ws, msg);
-      case 'LOGIN':         return this.handleLogin(ws, msg);
+      case 'CREATE_ROOM':   void this.handleCreateRoom(ws, msg); break;
+      case 'JOIN_ROOM':     void this.handleJoinRoom(ws, msg); break;
+      case 'READY':         void this.handleReady(ws, msg); break;
+      case 'START_GAME':    void this.handleStartGame(ws, msg); break;
+      case 'PLAY_TILE':     void this.handlePlayTile(ws, msg); break;
+      case 'CHI':           void this.handleChi(ws, msg); break;
+      case 'PENG':          void this.handlePeng(ws, msg); break;
+      case 'GANG':          void this.handleGang(ws, msg); break;
+      case 'HU':            void this.handleHu(ws, msg); break;
+      case 'PASS':          void this.handlePass(ws, msg); break;
+      case 'RECONNECT':     void this.handleReconnect(ws, msg); break;
+      case 'HEARTBEAT':     void this.handleHeartbeat(ws, msg); break;
+      case 'LOGIN':         void this.handleLogin(ws, msg); break;
       default:
         this.sendError(ws, msg.type, msg.requestId, ErrorCode.INVALID_MESSAGE, `unknown type: ${(msg as any).type}`);
     }

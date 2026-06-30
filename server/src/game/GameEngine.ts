@@ -193,10 +193,7 @@ export class GameEngine {
   /** 出牌。当前玩家，手牌中存在。 */
   playTile(playerId: string, seat: Seat, discardTile: Tile): ActionOutcome {
     if (this.state.phase !== 'playing') {
-      return this.fail('WRONG_PHASE', '当前不是对局阶段');
-    }
-    if (this.state.phase === 'settled') {
-      return this.fail('WRONG_PHASE', '对局已结束');
+      return this.fail('WRONG_PHASE', this.state.phase === 'settled' ? '对局已结束' : '当前不是对局阶段');
     }
     if (seat !== this.state.turn) {
       return this.fail('NOT_YOUR_TURN', `当前是 seat=${this.state.turn} 的回合`);

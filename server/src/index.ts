@@ -24,13 +24,12 @@ httpServer.on('request', (req, res) => {
   handleRequest(req, res);
 });
 
-// WebSocket → MahjongWSServer
+// WebSocket → MahjongWSServer（注入已有的 wss，共享端口）
 const mahjongServer = new MahjongWSServer(wss);
 
 listen(PORT, () => {
-  console.log(`[mahjong-server] HTTP + WebSocket 服务器已启动，端口 ${PORT}`);
-  console.log(`[mahjong-server] REST API: http://localhost:${PORT}/api/health`);
-  console.log(`[mahjong-server] WebSocket: ws://localhost:${PORT}/ws`);
+  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`WebSocket running on ws://localhost:${PORT}/ws`);
 });
 
 // 优雅退出
