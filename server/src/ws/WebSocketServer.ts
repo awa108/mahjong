@@ -329,6 +329,28 @@ export class MahjongWSServer {
       return;
     }
 
+    // 检查游戏是否已结束（流局）
+    const state = engine.getState();
+    if (state.phase === 'settled') {
+      await roomManager.finishGame(conn.roomId);
+      this.broadcastToRoom(conn.roomId, {
+        type: 'ROUND_END',
+        requestId: '',
+        serverTime: Date.now(),
+        payload: {
+          reason: 'draw',
+          winner: null,
+          winType: null,
+          from: null,
+          scores: { ...state.scores },
+          scoreChanges: { 0: 0, 1: 0, 2: 0, 3: 0 },
+          events: engine.getEventSummary(),
+        },
+        broadcast: 'all',
+      });
+      return;
+    }
+
     // 广播出牌
     this.broadcastToRoom(conn.roomId, {
       type: 'PLAY_TILE',

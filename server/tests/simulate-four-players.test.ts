@@ -1,17 +1,39 @@
-/**
- * 四玩家自动对局仿真测试。
- *
- * 启动本地 WSS → 连接 4 个客户端 → 建房/加入/准备/开始 →
- * 按固定 seed 的随机策略出牌/吃碰杠/过 →
- * 校验：服务端不崩溃、不泄露他人手牌、消息序列合法。
- */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
+import {
+  canChi,
+  canMingGang,
+  canPeng,
+  checkHu,
+  type PlayerViewState,
+  type Tile,
+} from '@mahjong/shared';
 import { MahjongWSServer } from '../src/ws/WebSocketServer.js';
 
-// ─── 可复现 PRNG (mulberry32) ────────────────────────
+const SERVER_SEED = 20260630;
+const BOT_SEED = 20260631;
+const MAX_STEPS = 240;
+const QUIET_MS = 35;
 
-function createRNG(seed: number): () => number {
+type ServerMsg = {
+  type: string;
+  requestId?: string;
+  payload?: any;
+  error?: { code: string; msg: string };
+};
+
+interface Bot {
+  name: string;
+  ws: WebSocket;
+  inbox: ServerMsg[];
+  messages: ServerMsg[];
+  view: PlayerViewState | null;
+  roundEnd: ServerMsg | null;
+  errors: Error[];
+  closed: boolean;
+}
+
+function seededRandom(seed: number): () => number {
   let s = seed | 0;
   return () => {
     s = (s + 0x6d2b79f5) | 0;
@@ -21,825 +43,411 @@ function createRNG(seed: number): () => number {
   };
 }
 
-// ─── 模拟客户端 ──────────────────────────────────────
-
-interface SimState {
-  myHand: any[];
-  allowedActions: string[];
-  turn: number;
-  phase: string;
-  scores: Record<number, number>;
-}
-
-class SimClient {
-  ws: WebSocket;
-  name: string;
-  msgQueue: any[] = [];
-  latestView: SimState | null = null;
-  roundEndMsg: any = null;
-  errors: any[] = [];
-
-  constructor(ws: WebSocket, name: string) {
-    this.ws = ws;
-    this.name = name;
-    ws.on('message', (raw) => {
-      try {
-        const m = JSON.parse(raw.toString());
-        this.msgQueue.push(m);
-      } catch {}
-    });
-  }
-
-  /** 等待特定类型的消息，返回匹配的第一条。 */
-  async waitMsg(type: string, timeoutMs = 5000): Promise<any> {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      const idx = this.msgQueue.findIndex((m) => m.type === type);
-      if (idx >= 0) {
-        const m = this.msgQueue[idx]!;
-        this.msgQueue.splice(idx, 1);
-        return m;
-      }
-      // Check for errors
-      const errIdx = this.msgQueue.findIndex((m) => m.error);
-      if (errIdx >= 0) {
-        const m = this.msgQueue[errIdx]!;
-        this.msgQueue.splice(errIdx, 1);
-        this.errors.push(m);
-        throw new Error(`Server error: ${m.error.code} - ${m.error.msg}`);
-      }
-      await sleep(20);
-    }
-    throw new Error(`${this.name}: timeout waiting for '${type}'. Queue: ${JSON.stringify(this.msgQueue.slice(0, 5))}`);
-  }
-
-  /** 从队列中取出最近一条 START_GAME (view) 消息，更新 latestView。 */
-  drainView(): boolean {
-    let found = false;
-    // 从后往前找最后的 START_GAME 消息
-    for (let i = this.msgQueue.length - 1; i >= 0; i--) {
-      if (this.msgQueue[i]!.type === 'START_GAME' && this.msgQueue[i]!.payload?.view) {
-        const v = this.msgQueue[i]!.payload.view;
-        this.latestView = {
-          myHand: v.myHand ?? [],
-          allowedActions: v.allowedActions ?? [],
-          turn: v.turn ?? -1,
-          phase: v.phase ?? '',
-          scores: v.scores ?? {},
-        };
-        found = true;
-      }
-    }
-    // 清理所有已处理的 START_GAME + PLAY_TILE + READY 等广播消息
-    this.msgQueue = this.msgQueue.filter(
-      (m) => m.type !== 'START_GAME' && m.type !== 'PLAY_TILE'
-        && m.type !== 'READY' && m.type !== 'HEARTBEAT'
-        && m.type !== 'CHI' && m.type !== 'PENG' && m.type !== 'GANG'
-        && m.type !== 'HU' && m.type !== 'ROUND_END' && m.type !== 'JOIN_ROOM',
-    );
-    return found;
-  }
-
-  /** 清空队列（丢弃所有 pending 消息）。 */
-  clearQueue(): void {
-    this.msgQueue.length = 0;
-  }
-
-  /** 检查是否有 ROUND_END。 */
-  checkRoundEnd(): any | null {
-    for (let i = this.msgQueue.length - 1; i >= 0; i--) {
-      if (this.msgQueue[i]!.type === 'ROUND_END') {
-        const m = this.msgQueue[i]!;
-        this.msgQueue.splice(i, 1);
-        this.roundEndMsg = m;
-        return m;
-      }
-    }
-    return null;
-  }
-
-  send(msg: Record<string, unknown>): void {
-    this.ws.send(JSON.stringify(msg));
-  }
-}
-
 function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// ─── 模拟策略 ────────────────────────────────────────
+function makeRequestId(type: string): string {
+  makeRequestId.seq += 1;
+  return `${type}_${makeRequestId.seq}`;
+}
+makeRequestId.seq = 0;
 
-interface BotChoice {
-  type: string;
-  payload?: Record<string, unknown>;
+function send(ws: WebSocket, type: string, payload: Record<string, unknown> = {}): void {
+  ws.send(JSON.stringify({ type, requestId: makeRequestId(type), serverTime: 0, payload }));
 }
 
-/**
- * 根据当前手牌和 allowedActions 决定动作。
- * 优先级：胡 > 杠 > 碰 > 吃 > 过（概率递减）。
- */
-function chooseAction(rng: () => number, view: SimState): BotChoice | null {
-  const actions = view.allowedActions;
-  if (actions.length === 0) return null;
-
-  // 出牌回合：随机选一张手牌打出
-  if (actions.includes('PLAY_TILE') && view.myHand.length > 0) {
-    const idx = Math.floor(rng() * view.myHand.length);
-    const tile = view.myHand[idx];
-    return { type: 'PLAY_TILE', payload: { tile } };
-  }
-
-  // 响应窗口：按概率选择
-  if (actions.includes('HU')) {
-    // 50% 概率胡牌（如果可胡），避免每局立刻结束
-    if (rng() < 0.5) {
-      return { type: 'HU', payload: { source: 'discard' } };
-    }
-  }
-
-  if (actions.includes('GANG')) {
-    if (rng() < 0.4) {
-      return { type: 'GANG', payload: { gangKind: 'ming_kong', tile: {} } };
-    }
-  }
-
-  if (actions.includes('PENG')) {
-    if (rng() < 0.5) {
-      return { type: 'PENG', payload: { tile: {} } };
-    }
-  }
-
-  if (actions.includes('CHI')) {
-    if (rng() < 0.5) {
-      // 需要传 chiLow — 从最新的 PLAY_TILE 知道弃牌
-      // 这里传一个占位，WSS 会从 engine 取 lastDiscard 构造 chiLow
-      // 实际上 chi msg 需要 chiLow，但 engine.chi() 用 chiLow 匹配选项
-      return { type: 'CHI', payload: { tile: {}, chiLow: {} } };
-    }
-  }
-
-  // 默认 PASS
-  if (actions.includes('PASS')) {
-    return { type: 'PASS', payload: {} };
-  }
-
-  return null;
+function tileRef(tile: Tile): { suit: Tile['suit']; rank: Tile['rank'] } {
+  return { suit: tile.suit, rank: tile.rank };
 }
 
-/** 根据 WSS 收到的 PLAY_TILE 消息中的 tile 来构造合法的 chiLow。 */
-function buildChiPayload(view: SimState, lastDiscard: any): any | null {
-  // lastDiscard has { suit, rank }
-  // We need to find a valid chi option
-  // canChi returns options, each with chiLow.
-  // We're blind to the exact options but can try a common chiLow:
-  // The chiLow is the lowest tile in the chi meld.
-  // Simplest: use the discard tile itself as chiLow (r+1, r+2 case)
-  // or r-2, or r-1.
-  // Since we don't have the exact options client-side, we'll try all 3
-  // and let the server reject invalid ones. But for the test, we should
-  // pick one that works.
-  // For now: just use the discard itself - this covers the case where
-  // discard is the middle or lowest of the chi.
-  const suit = lastDiscard.suit;
-  const rank = lastDiscard.rank;
-
-  // Try rank-2 as chiLow (r-2, r-1 + discard)
-  if (rank >= 3) {
-    return { tile: lastDiscard, chiLow: { suit, rank: rank - 2 } };
-  }
-  // Try rank-1 as chiLow (r-1, r+1 + discard)
-  if (rank >= 2) {
-    return { tile: lastDiscard, chiLow: { suit, rank: rank - 1 } };
-  }
-  // Try rank as chiLow (r, r+1, r+2)
-  return { tile: lastDiscard, chiLow: { suit, rank } };
+function tileText(tile: Tile | null | undefined): string {
+  return tile ? `${tile.suit}${tile.rank}` : 'none';
 }
 
-// ─── 非泄露校验 ──────────────────────────────────────
+function makeBot(name: string, ws: WebSocket): Bot {
+  const bot: Bot = {
+    name,
+    ws,
+    inbox: [],
+    messages: [],
+    view: null,
+    roundEnd: null,
+    errors: [],
+    closed: false,
+  };
 
-/** 检查视图是否泄露了其他玩家手牌。 */
-function assertNoHandLeak(view: SimState, myIndex: number): void {
-  // myHand 只能包含 0-14 张牌（结构检查，不读内容）
+  ws.on('message', (raw: Buffer) => {
+    try {
+      const msg = JSON.parse(raw.toString()) as ServerMsg;
+      bot.inbox.push(msg);
+      bot.messages.push(msg);
+    } catch (error) {
+      bot.errors.push(error instanceof Error ? error : new Error(String(error)));
+    }
+  });
+  ws.on('error', (error) => bot.errors.push(error));
+  ws.on('close', () => {
+    bot.closed = true;
+  });
+
+  return bot;
+}
+
+async function connect(port: number): Promise<WebSocket> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+    ws.on('open', () => resolve(ws));
+    ws.on('error', reject);
+  });
+}
+
+function takeMessages(bot: Bot): ServerMsg[] {
+  const messages = bot.inbox;
+  bot.inbox = [];
+  return messages;
+}
+
+function assertNoPrivateHands(bot: Bot, view: PlayerViewState): void {
   expect(Array.isArray(view.myHand)).toBe(true);
-  // 不能从 view 中获得其他玩家具体手牌，
-  // PlayerViewState.players 只含 concealedCount，不含 concealed 数组。
+
+  for (const player of view.players) {
+    const raw = player as Record<string, unknown>;
+    expect(raw.concealed).toBeUndefined();
+    expect(raw.hand).toBeUndefined();
+    expect(raw.hands).toBeUndefined();
+    expect(raw.myHand).toBeUndefined();
+
+    if (player.seat !== view.mySeat) {
+      expect(Array.isArray(raw.concealed)).toBe(false);
+      expect(Array.isArray(raw.hand)).toBe(false);
+    }
+  }
+
+  const rawView = view as unknown as Record<string, unknown>;
+  expect(rawView.wall).toBeUndefined();
+  expect(rawView.hands).toBeUndefined();
 }
 
-// ─── 测试 ────────────────────────────────────────────
+async function waitFor(
+  bot: Bot,
+  predicate: (msg: ServerMsg) => boolean,
+  label: string,
+  timeoutMs = 5000,
+): Promise<ServerMsg> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const messages = takeMessages(bot);
+    for (const msg of messages) {
+      if (msg.error) {
+        throw new Error(`${bot.name} received ${msg.type} error ${msg.error.code}: ${msg.error.msg}`);
+      }
+      if (msg.type === 'START_GAME' && msg.payload?.view) {
+        bot.view = msg.payload.view;
+        assertNoPrivateHands(bot, bot.view!);
+      }
+      if (msg.type === 'ROUND_END') {
+        bot.roundEnd = msg;
+      }
+      if (predicate(msg)) return msg;
+    }
+    await sleep(10);
+  }
+  throw new Error(`${bot.name} timed out waiting for ${label}`);
+}
 
-describe('四玩家自动对局仿真', { timeout: 60_000 }, () => {
+function ingestMessages(bots: Bot[]): boolean {
+  let sawState = false;
+  for (const bot of bots) {
+    const messages = takeMessages(bot);
+    for (const msg of messages) {
+      if (msg.error) {
+        throw new Error(`${bot.name} received ${msg.type} error ${msg.error.code}: ${msg.error.msg}`);
+      }
+      if (msg.type === 'START_GAME' && msg.payload?.view) {
+        bot.view = msg.payload.view;
+        assertNoPrivateHands(bot, bot.view!);
+        sawState = true;
+      }
+      if (msg.type === 'ROUND_END') {
+        bot.roundEnd = msg;
+      }
+    }
+  }
+  return sawState;
+}
+
+async function syncViews(bots: Bot[], timeoutMs = 5000): Promise<'state' | 'roundEnd'> {
+  const deadline = Date.now() + timeoutMs;
+  const seen = new Set<Bot>();
+  let lastStateAt = 0;
+
+  while (Date.now() < deadline) {
+    for (const bot of bots) {
+      const messages = takeMessages(bot);
+      for (const msg of messages) {
+        if (msg.error) {
+          throw new Error(`${bot.name} received ${msg.type} error ${msg.error.code}: ${msg.error.msg}`);
+        }
+        if (msg.type === 'ROUND_END') {
+          bot.roundEnd = msg;
+        }
+        if (msg.type === 'START_GAME' && msg.payload?.view) {
+          bot.view = msg.payload.view;
+          assertNoPrivateHands(bot, bot.view!);
+          seen.add(bot);
+          lastStateAt = Date.now();
+        }
+      }
+    }
+
+    if (bots.every((bot) => bot.roundEnd)) return 'roundEnd';
+    if (seen.size === bots.length && lastStateAt > 0 && Date.now() - lastStateAt >= QUIET_MS) {
+      return 'state';
+    }
+    await sleep(10);
+  }
+
+  throw new Error(`timed out waiting for state sync; seen=${seen.size}/${bots.length}`);
+}
+
+async function setupRoom(port: number, log: string[]): Promise<{ bots: Bot[]; roomId: string; roomCode: string }> {
+  const sockets = await Promise.all([connect(port), connect(port), connect(port), connect(port)]);
+  const bots = ['A', 'B', 'C', 'D'].map((name, index) => makeBot(name, sockets[index]!));
+
+  send(bots[0]!.ws, 'CREATE_ROOM', { nickname: 'A' });
+  const created = await waitFor(bots[0]!, (msg) => msg.type === 'CREATE_ROOM', 'CREATE_ROOM');
+  const roomId = created.payload.room.roomId as string;
+  const roomCode = created.payload.room.roomCode as string;
+  log.push(`[setup] A created room ${roomCode}`);
+
+  for (const bot of bots.slice(1)) {
+    send(bot.ws, 'JOIN_ROOM', { roomCode, nickname: bot.name });
+    await waitFor(bot, (msg) => msg.type === 'JOIN_ROOM', `${bot.name} JOIN_ROOM`);
+    log.push(`[setup] ${bot.name} joined room`);
+  }
+
+  await sleep(50);
+  ingestMessages(bots);
+
+  for (const bot of bots) send(bot.ws, 'READY');
+  await waitUntil(() => {
+    ingestMessages(bots);
+    return bots.every((bot) => bot.messages.filter((msg) => msg.type === 'READY').length >= 4);
+  }, 'all READY broadcasts');
+  log.push('[setup] all players ready');
+
+  send(bots[0]!.ws, 'START_GAME');
+  await syncViews(bots);
+  log.push('[setup] game started');
+
+  expect(bots[0]!.view?.myHand).toHaveLength(14);
+  for (const bot of bots.slice(1)) {
+    expect(bot.view?.myHand).toHaveLength(13);
+  }
+
+  return { bots, roomId, roomCode };
+}
+
+async function waitUntil(predicate: () => boolean, label: string, timeoutMs = 5000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await sleep(10);
+  }
+  throw new Error(`timed out waiting for ${label}`);
+}
+
+type Candidate =
+  | { kind: 'HU'; bot: Bot }
+  | { kind: 'GANG'; bot: Bot }
+  | { kind: 'PENG'; bot: Bot }
+  | { kind: 'CHI'; bot: Bot; chiLow: Tile };
+
+function responseCandidates(bots: Bot[]): { responders: Bot[]; top: Candidate[] } {
+  const reference = bots.find((bot) => bot.view?.lastDiscard)?.view;
+  const discard = reference?.lastDiscard;
+  const discardBy = reference?.lastDiscardBy;
+  if (!reference || !discard || discardBy == null) return { responders: [], top: [] };
+
+  const responders = bots.filter((bot) => bot.view?.mySeat !== discardBy);
+  const hu: Candidate[] = [];
+  const gang: Candidate[] = [];
+  const peng: Candidate[] = [];
+  const chi: Candidate[] = [];
+
+  for (const bot of responders) {
+    const view = bot.view!;
+    const actions = new Set(view.allowedActions);
+    if (actions.has('HU') && checkHu([...view.myHand, discard]).canHu) {
+      hu.push({ kind: 'HU', bot });
+    }
+    if (actions.has('GANG') && canMingGang(view.myHand, discard).canGang) {
+      gang.push({ kind: 'GANG', bot });
+    }
+    if (actions.has('PENG') && canPeng(view.myHand, discard).canPeng) {
+      peng.push({ kind: 'PENG', bot });
+    }
+    if (actions.has('CHI')) {
+      const result = canChi(view.myHand, discard, view.mySeat, discardBy);
+      if (result.canChi && result.options[0]) {
+        chi.push({ kind: 'CHI', bot, chiLow: result.options[0].chiLow });
+      }
+    }
+  }
+
+  if (hu.length > 0) return { responders, top: hu };
+  if (gang.length > 0) return { responders, top: gang };
+  if (peng.length > 0) return { responders, top: peng };
+  return { responders, top: chi };
+}
+
+async function playUntilRoundEnd(
+  bots: Bot[],
+  rng: () => number,
+  log: string[],
+): Promise<void> {
+  for (let step = 0; step < MAX_STEPS; step++) {
+    ingestMessages(bots);
+    if (bots.every((bot) => bot.roundEnd)) {
+      log.push(`[step ${step}] round ended`);
+      return;
+    }
+
+    const actor = bots.find((bot) => {
+      const view = bot.view;
+      return view
+        && view.turn === view.mySeat
+        && view.allowedActions.includes('PLAY_TILE')
+        && view.myHand.length > 0;
+    });
+
+    if (actor?.view) {
+      const tile = actor.view.myHand[Math.floor(rng() * actor.view.myHand.length)]!;
+      log.push(`[step ${step}] ${actor.name}/S${actor.view.mySeat} PLAY ${tileText(tile)}`);
+      send(actor.ws, 'PLAY_TILE', { tile: tileRef(tile) });
+      if (await syncViews(bots) === 'roundEnd') return;
+      continue;
+    }
+
+    const { responders, top } = responseCandidates(bots);
+    if (responders.length === 0) {
+      await sleep(20);
+      continue;
+    }
+
+    const shouldClaim = top.length > 0 && rng() < 0.55;
+    if (!shouldClaim) {
+      log.push(`[step ${step}] PASS ${responders.map((bot) => bot.name).join('/')}`);
+      for (const bot of responders) send(bot.ws, 'PASS');
+      if (await syncViews(bots) === 'roundEnd') return;
+      continue;
+    }
+
+    const candidate = top[Math.floor(rng() * top.length)]!;
+    const discard = candidate.bot.view!.lastDiscard!;
+    log.push(`[step ${step}] ${candidate.bot.name}/S${candidate.bot.view!.mySeat} ${candidate.kind} ${tileText(discard)}`);
+
+    if (candidate.kind === 'HU') {
+      send(candidate.bot.ws, 'HU', { source: 'discard' });
+    } else if (candidate.kind === 'GANG') {
+      send(candidate.bot.ws, 'GANG', { tile: tileRef(discard), gangKind: 'ming_kong' });
+    } else if (candidate.kind === 'PENG') {
+      send(candidate.bot.ws, 'PENG', { tile: tileRef(discard) });
+    } else {
+      send(candidate.bot.ws, 'CHI', { tile: tileRef(discard), chiLow: tileRef(candidate.chiLow) });
+    }
+
+    if (await syncViews(bots) === 'roundEnd') return;
+  }
+
+  throw new Error(`round did not finish within ${MAX_STEPS} steps`);
+}
+
+function getRecentGameEvents(server: MahjongWSServer, roomId: string): any[] {
+  const engines = (server as unknown as { engines?: Map<string, { getEventSummary: () => any[] }> }).engines;
+  return engines?.get(roomId)?.getEventSummary().slice(-20) ?? [];
+}
+
+function printRecentEvents(server: MahjongWSServer, roomId: string): void {
+  const events = getRecentGameEvents(server, roomId);
+  console.log(`Recent GameEvent entries (${events.length}/20):`);
+  for (const event of events) {
+    console.log(`  #${event.seq ?? '-'} ${event.type} S${event.seat} ${new Date(event.timestamp).toISOString()}`);
+  }
+}
+
+function printGameLog(log: string[], bots: Bot[]): void {
+  console.log('\nFour-player simulation log');
+  console.log(`steps logged: ${log.length}`);
+  for (const line of log.slice(-40)) console.log(line);
+
+  const roundEnd = bots.find((bot) => bot.roundEnd)?.roundEnd;
+  if (!roundEnd) return;
+
+  const payload = roundEnd.payload;
+  console.log(`result: ${payload.reason}, winner=${payload.winner ?? 'none'}, winType=${payload.winType ?? 'none'}`);
+  console.log(`scores: ${JSON.stringify(payload.scores)}`);
+  console.log(`recent events: ${(payload.events ?? []).slice(-20).map((event: any) => `${event.type}:S${event.seat}`).join(', ')}`);
+}
+
+describe('simulate four WebSocket players', { timeout: 60_000 }, () => {
   let server: MahjongWSServer;
   let port: number;
-  let rng: () => number;
-  let clients: SimClient[] = [];
 
-  beforeAll(async () => {
-    // 固定 seed = 20240601 使整局可复现
-    rng = createRNG(20240601);
-
+  beforeAll(() => {
     server = new MahjongWSServer();
     const wss = server.listen(0);
-    port = (wss.address() as any).port;
+    port = (wss.address() as { port: number }).port;
   });
 
-  afterAll(() => {
-    for (const c of clients) c.ws.close();
-    server?.close();
+  afterAll(async () => {
+    await new Promise<void>((resolve) => server.close(resolve));
   });
 
-  function connect(): Promise<WebSocket> {
-    return new Promise((resolve, reject) => {
-      const ws = new WebSocket(`ws://localhost:${port}`);
-      ws.on('open', () => resolve(ws));
-      ws.on('error', reject);
-    });
-  }
-
-  it('完整一局：建房→加入→准备→对局→结算', async () => {
+  it('runs a deterministic four-player room and keeps private hands private', async () => {
     await server._reset();
+    makeRequestId.seq = 0;
 
-    // ── 1. 连接 4 个客户端 ─────────────────────────
-    const raws = await Promise.all([connect(), connect(), connect(), connect()]);
-    clients = [
-      new SimClient(raws[0]!, '东'),
-      new SimClient(raws[1]!, '南'),
-      new SimClient(raws[2]!, '西'),
-      new SimClient(raws[3]!, '北'),
-    ];
+    const originalRandom = Math.random;
+    Math.random = seededRandom(SERVER_SEED);
 
-    // ── 2. 玩家 A 创建房间 ─────────────────────────
-    clients[0]!.send({ type: 'CREATE_ROOM', requestId: 'cr', serverTime: 0, payload: { nickname: '东' } });
-    const crResp = await clients[0]!.waitMsg('CREATE_ROOM');
-    expect(crResp.payload.room).toBeDefined();
-    expect(crResp.payload.sessionToken).toBeDefined();
-    const roomCode: string = crResp.payload.room.roomCode;
+    let roomId = '';
+    let bots: Bot[] = [];
+    const log: string[] = [`[seed] server=${SERVER_SEED}, bot=${BOT_SEED}`];
 
-    // ── 3. B/C/D 加入 ─────────────────────────────
-    const joinPayloads = [
-      { roomCode, nickname: '南' },
-      { roomCode, nickname: '西' },
-      { roomCode, nickname: '北' },
-    ];
+    try {
+      const setup = await setupRoom(port, log);
+      roomId = setup.roomId;
+      bots = setup.bots;
 
-    for (let i = 1; i <= 3; i++) {
-      clients[i]!.send({ type: 'JOIN_ROOM', requestId: `j${i}`, serverTime: 0, payload: joinPayloads[i - 1]! });
-      const jResp = await clients[i]!.waitMsg('JOIN_ROOM');
-      expect(jResp.payload.room.players).toHaveLength(i + 1);
-    }
+      await playUntilRoundEnd(bots, seededRandom(BOT_SEED), log);
+      printGameLog(log, bots);
 
-    // drain A's JOIN_ROOM broadcasts
-    await sleep(100);
-    for (const c of clients) c.clearQueue();
+      expect(bots.every((bot) => bot.roundEnd)).toBe(true);
+      expect(bots.every((bot) => bot.errors.length === 0)).toBe(true);
+      expect(bots.every((bot) => !bot.closed)).toBe(true);
 
-    // ── 4. 四人准备 ────────────────────────────────
-    for (let i = 0; i < 4; i++) {
-      clients[i]!.send({ type: 'READY', requestId: `r${i}`, serverTime: 0, payload: {} });
-    }
-    await sleep(200);
-    for (const c of clients) c.clearQueue();
-
-    // ── 5. 房主开始游戏 ────────────────────────────
-    clients[0]!.send({ type: 'START_GAME', requestId: 'sg', serverTime: 0, payload: {} });
-
-    // 收集各玩家的初始视图
-    for (let i = 0; i < 4; i++) {
-      let view: any = null;
-      for (let t = 0; t < 20; t++) {
-        const m = await clients[i]!.waitMsg('START_GAME');
-        if (m.payload?.view) { view = m; break; }
+      for (const bot of bots) {
+        expect(bot.view).not.toBeNull();
+        assertNoPrivateHands(bot, bot.view!);
       }
-      expect(view).not.toBeNull();
-      clients[i]!.latestView = {
-        myHand: view.payload.view.myHand ?? [],
-        allowedActions: view.payload.view.allowedActions ?? [],
-        turn: view.payload.view.turn ?? -1,
-        phase: view.payload.view.phase ?? '',
-        scores: view.payload.view.scores ?? {},
-      };
-    }
-    for (const c of clients) c.clearQueue();
 
-    // 庄家 14 张，其余 13 张
-    expect(clients[0]!.latestView!.myHand).toHaveLength(14);
-    expect(clients[1]!.latestView!.myHand).toHaveLength(13);
-    expect(clients[2]!.latestView!.myHand).toHaveLength(13);
-    expect(clients[3]!.latestView!.myHand).toHaveLength(13);
-
-    // ── 6. 对局主循环 ──────────────────────────────
-
-    const MAX_ROUNDS = 200;
-    let roundCount = 0;
-    let roundEnded = false;
-    let lastPlayedTile: any = null;
-    const gameLog: string[] = [];
-
-    while (roundCount < MAX_ROUNDS) {
-      roundCount++;
-
-      // 检查是否有 ROUND_END
-      for (const c of clients) {
-        const re = c.checkRoundEnd();
-        if (re) {
-          roundEnded = true;
-          gameLog.push(`[对局结束] reason=${re.payload.reason} winner=${re.payload.winner ?? '无'}`);
+      const scores = bots[0]!.roundEnd!.payload.scores as Record<string, number>;
+      expect(Object.values(scores).reduce((sum, score) => sum + score, 0)).toBe(0);
+    } catch (error) {
+      console.log('\nSimulation failed. Last local log lines:');
+      for (const line of log.slice(-20)) console.log(line);
+      if (roomId) printRecentEvents(server, roomId);
+      throw error;
+    } finally {
+      Math.random = originalRandom;
+      for (const bot of bots) {
+        if (bot.ws.readyState === WebSocket.OPEN || bot.ws.readyState === WebSocket.CONNECTING) {
+          bot.ws.close();
         }
       }
-      if (roundEnded) break;
-
-      // 更新每个人的最新视图
-      for (const c of clients) c.drainView();
-
-      // 查找当前 turn 的玩家
-      const currentTurn = clients[0]!.latestView?.turn ?? -1;
-      if (currentTurn < 0) {
-        await sleep(50);
-        continue;
-      }
-
-      const currentPlayer = clients[currentTurn]!;
-      const view = currentPlayer.latestView;
-
-      if (!view) {
-        await sleep(50);
-        continue;
-      }
-
-      const actions = view.allowedActions;
-
-      // 当前玩家的出牌回合
-      if (actions.includes('PLAY_TILE') && view.myHand.length > 0) {
-        const idx = Math.floor(rng() * view.myHand.length);
-        const tile = view.myHand[idx];
-        lastPlayedTile = tile;
-
-        gameLog.push(`[R${roundCount}] 玩家${currentPlayer.name}(S${currentTurn}) 出牌 ${tile.suit}${tile.rank}`);
-
-        currentPlayer.send({
-          type: 'PLAY_TILE',
-          requestId: `p${roundCount}`,
-          serverTime: 0,
-          payload: { tile },
-        });
-
-        // 等待消息到达
-        await sleep(100);
-        // 更新所有人的视图
-        for (const c of clients) c.drainView();
-        continue;
-      }
-
-      // 响应窗口：让每个需要响应的玩家行动
-      const responders: { client: SimClient; seat: number; actions: string[] }[] = [];
-      for (let i = 0; i < 4; i++) {
-        const v = clients[i]!.latestView;
-        if (v && v.turn === currentTurn) {
-          const act = v.allowedActions;
-          // 当前玩家不参与响应（自己出的牌）
-          if (i === currentTurn) continue;
-          if (act.length > 0 && !act.includes('PLAY_TILE')) {
-            responders.push({ client: clients[i]!, seat: i, actions: act });
-          }
-        }
-      }
-
-      if (responders.length === 0) {
-        // 没有响应者，等待引擎自动推进
-        await sleep(100);
-        for (const c of clients) c.drainView();
-        continue;
-      }
-
-      // 按优先级处理响应者：胡 → 杠 → 碰 → 吃 → 过
-      // 先检查是否有人胡（最高优先级）
-      const huResponders = responders.filter((r) => r.actions.includes('HU'));
-      if (huResponders.length > 0 && rng() < 0.6) {
-        const r = huResponders[Math.floor(rng() * huResponders.length)]!;
-        gameLog.push(`[R${roundCount}] 玩家${r.client.name}(S${r.seat}) 胡！`);
-        r.client.send({ type: 'HU', requestId: `hu${roundCount}`, serverTime: 0, payload: { source: 'discard' } });
-        await sleep(200);
-        for (const c of clients) c.drainView();
-        continue;
-      }
-
-      // 杠
-      const gangResponders = responders.filter((r) => r.actions.includes('GANG'));
-      if (gangResponders.length > 0 && rng() < 0.5) {
-        const r = gangResponders[Math.floor(rng() * gangResponders.length)]!;
-        gameLog.push(`[R${roundCount}] 玩家${r.client.name}(S${r.seat}) 杠`);
-        r.client.send({
-          type: 'GANG',
-          requestId: `g${roundCount}`,
-          serverTime: 0,
-          payload: { tile: lastPlayedTile || {}, gangKind: 'ming_kong' },
-        });
-        await sleep(200);
-        for (const c of clients) c.drainView();
-        continue;
-      }
-
-      // 碰
-      const pengResponders = responders.filter((r) => r.actions.includes('PENG'));
-      if (pengResponders.length > 0 && rng() < 0.6) {
-        const r = pengResponders[Math.floor(rng() * pengResponders.length)]!;
-        gameLog.push(`[R${roundCount}] 玩家${r.client.name}(S${r.seat}) 碰`);
-        r.client.send({
-          type: 'PENG',
-          requestId: `pg${roundCount}`,
-          serverTime: 0,
-          payload: { tile: lastPlayedTile || {} },
-        });
-        await sleep(200);
-        for (const c of clients) c.drainView();
-        continue;
-      }
-
-      // 吃
-      const chiResponders = responders.filter((r) => r.actions.includes('CHI'));
-      if (chiResponders.length > 0 && rng() < 0.5) {
-        const r = chiResponders[Math.floor(rng() * chiResponders.length)]!;
-        // 构建合法 chiLow 尝试
-        let chiPayload: any = { tile: lastPlayedTile || {} };
-        if (lastPlayedTile) {
-          const built = buildChiPayload(r.client.latestView!, lastPlayedTile);
-          if (built) chiPayload = built;
-        }
-        gameLog.push(`[R${roundCount}] 玩家${r.client.name}(S${r.seat}) 尝试吃 (chiLow=${chiPayload.chiLow?.suit}${chiPayload.chiLow?.rank})`);
-        r.client.send({
-          type: 'CHI',
-          requestId: `ch${roundCount}`,
-          serverTime: 0,
-          payload: chiPayload,
-        });
-        await sleep(200);
-        for (const c of clients) c.drainView();
-        continue;
-      }
-
-      // 所有剩余响应者：PASS
-      for (const r of responders) {
-        if (r.actions.includes('PASS')) {
-          r.client.send({ type: 'PASS', requestId: `ps${roundCount}_${r.seat}`, serverTime: 0, payload: {} });
-        }
-      }
-      await sleep(100);
-      for (const c of clients) c.drainView();
+      await sleep(50);
     }
-
-    // ── 7. 校验 ─────────────────────────────────
-
-    // 7a. 对局必须结束
-    expect(roundEnded).toBe(true);
-    expect(roundCount).toBeLessThan(MAX_ROUNDS);
-
-    // 7b. 所有玩家都收到了 ROUND_END
-    for (const c of clients) {
-      expect(c.roundEndMsg).not.toBeNull();
-      expect(c.roundEndMsg.payload.events).toBeDefined();
-      expect(c.roundEndMsg.payload.events.length).toBeGreaterThan(0);
-    }
-
-    // 7c. 最后的消息序列中，myHand 不包含他人手牌
-    for (const c of clients) {
-      assertNoHandLeak(c.latestView!, clients.indexOf(c));
-    }
-
-    // 7d. 打印对局日志
-    console.log('\n══════════════════════════════════════════');
-    console.log('        四玩家自动对局 — 仿真日志');
-    console.log('══════════════════════════════════════════');
-    for (const line of gameLog) {
-      console.log(line);
-    }
-
-    // 打印结算信息
-    const finalEvents = clients[0]!.roundEndMsg?.payload?.events ?? [];
-    console.log(`\n── 对局事件（共 ${finalEvents.length} 条）──`);
-    const EVENT_CN: Record<string, string> = {
-      DEAL: '发牌', DRAW: '摸牌', PLAY: '出牌',
-      CHI: '吃', PENG: '碰', MING_KONG: '明杠',
-      AN_KONG: '暗杠', BU_KONG: '补杠', HU: '胡牌',
-      PASS: '过', ROUND_END: '结束', DRAW_GAME: '流局',
-    };
-    const last20 = finalEvents.slice(-20);
-    for (const e of last20) {
-      const label = EVENT_CN[e.type] ?? e.type;
-      console.log(`  S${e.seat} [${label}] @ ${new Date(e.timestamp).toISOString()}`);
-    }
-
-    const ro = clients[0]!.roundEndMsg!.payload;
-    if (ro.reason === 'win') {
-      console.log(`\n── 胜者: Seat ${ro.winner} (${ro.winType === 'self' ? '自摸' : '点炮'}) ──`);
-    } else {
-      console.log(`\n── 流局 ──`);
-    }
-    console.log(`分数: S0=${ro.scores[0]} S1=${ro.scores[1]} S2=${ro.scores[2]} S3=${ro.scores[3]}`);
-    console.log(`分数变化: S0=${ro.scoreChanges[0]} S1=${ro.scoreChanges[1]} S2=${ro.scoreChanges[2]} S3=${ro.scoreChanges[3]}`);
-    console.log('══════════════════════════════════════════\n');
-
-    expect(ro.scores).toBeDefined();
-    expect(ro.scoreChanges).toBeDefined();
-  });
-
-  it('两局连玩：退回房间→再来一局', { timeout: 90_000 }, async () => {
-    await server._reset();
-
-    const raws = await Promise.all([connect(), connect(), connect(), connect()]);
-    clients = [
-      new SimClient(raws[0]!, '东'),
-      new SimClient(raws[1]!, '南'),
-      new SimClient(raws[2]!, '西'),
-      new SimClient(raws[3]!, '北'),
-    ];
-
-    // 第一局：建房加入准备开始
-    clients[0]!.send({ type: 'CREATE_ROOM', requestId: 'cr', serverTime: 0, payload: { nickname: '东' } });
-    const crResp = await clients[0]!.waitMsg('CREATE_ROOM');
-    const roomCode: string = crResp.payload.room.roomCode;
-
-    for (let i = 1; i <= 3; i++) {
-      clients[i]!.send({ type: 'JOIN_ROOM', requestId: `j${i}`, serverTime: 0, payload: { roomCode, nickname: ['南', '西', '北'][i - 1] } });
-      await clients[i]!.waitMsg('JOIN_ROOM');
-    }
-    await sleep(100);
-    for (const c of clients) c.clearQueue();
-
-    for (let i = 0; i < 4; i++) {
-      clients[i]!.send({ type: 'READY', requestId: `r${i}`, serverTime: 0, payload: {} });
-    }
-    await sleep(200);
-    for (const c of clients) c.clearQueue();
-
-    clients[0]!.send({ type: 'START_GAME', requestId: 'sg1', serverTime: 0, payload: {} });
-    for (let i = 0; i < 4; i++) {
-      let found = false;
-      for (let t = 0; t < 20; t++) {
-        const m = await clients[i]!.waitMsg('START_GAME');
-        if (m.payload?.view) {
-          clients[i]!.latestView = {
-            myHand: m.payload.view.myHand ?? [],
-            allowedActions: m.payload.view.allowedActions ?? [],
-            turn: m.payload.view.turn ?? -1,
-            phase: m.payload.view.phase ?? '',
-            scores: m.payload.view.scores ?? {},
-          };
-          found = true;
-          break;
-        }
-      }
-      expect(found).toBe(true);
-    }
-    for (const c of clients) c.clearQueue();
-
-    // 快速模拟：所有人只出牌+PASS（不碰不杠），让第一局尽快结束
-    let round1Ended = false;
-    for (let round = 0; round < 300 && !round1Ended; round++) {
-      for (const c of clients) {
-        const re = c.checkRoundEnd();
-        if (re) round1Ended = true;
-      }
-      if (round1Ended) break;
-
-      for (const c of clients) c.drainView();
-
-      const turn = clients[0]!.latestView?.turn ?? -1;
-      if (turn < 0) { await sleep(20); continue; }
-
-      const cp = clients[turn]!;
-      const v = cp.latestView;
-
-      if (v?.allowedActions.includes('PLAY_TILE') && v.myHand.length > 0) {
-        const tileIdx = Math.floor(rng() * v.myHand.length);
-        const tile = v.myHand[tileIdx];
-        cp.send({ type: 'PLAY_TILE', requestId: `p${round}`, serverTime: 0, payload: { tile } });
-        await sleep(80);
-        for (const c of clients) c.drainView();
-        continue;
-      }
-
-      // 响应窗口：全部 PASS
-      let acted = false;
-      for (let i = 0; i < 4; i++) {
-        const av = clients[i]!.latestView;
-        if (av && av.turn === turn && i !== turn) {
-          const act = av.allowedActions;
-          if (act.length > 0 && !act.includes('PLAY_TILE')) {
-            if (act.includes('HU') && rng() < 0.3) {
-              clients[i]!.send({ type: 'HU', requestId: `hu${round}`, serverTime: 0, payload: { source: 'discard' } });
-              acted = true;
-              break;
-            }
-            if (act.includes('PASS')) {
-              clients[i]!.send({ type: 'PASS', requestId: `ps${round}_${i}`, serverTime: 0, payload: {} });
-              acted = true;
-            }
-          }
-        }
-      }
-      if (!acted) { await sleep(40); }
-      await sleep(60);
-      for (const c of clients) c.drainView();
-    }
-
-    expect(round1Ended).toBe(true);
-    const scoresAfterR1 = { ...clients[0]!.roundEndMsg?.payload?.scores };
-
-    // 验证分数总和守恒（自摸 +3-1-1-1=0，点炮 +3-3=0）
-    const totalScore1 = Object.values(scoresAfterR1 as Record<number, number>).reduce((a, b) => a + b, 0);
-    expect(totalScore1).toBe(0);
-
-    console.log(`第一局结束，分数: ${JSON.stringify(scoresAfterR1)}`);
-
-    // 关闭连接，重新连接来模拟退房再开
-    for (const c of clients) c.ws.close();
-    await sleep(200);
-
-    const raws2 = await Promise.all([connect(), connect(), connect(), connect()]);
-    clients = [
-      new SimClient(raws2[0]!, '东'),
-      new SimClient(raws2[1]!, '南'),
-      new SimClient(raws2[2]!, '西'),
-      new SimClient(raws2[3]!, '北'),
-    ];
-
-    // 重连：用第一局保存的 token
-    // 实际操作中：创建新房间，重新开始
-    clients[0]!.send({ type: 'CREATE_ROOM', requestId: 'cr2', serverTime: 0, payload: { nickname: '东' } });
-    const cr2Resp = await clients[0]!.waitMsg('CREATE_ROOM');
-    const roomCode2: string = cr2Resp.payload.room.roomCode;
-
-    for (let i = 1; i <= 3; i++) {
-      clients[i]!.send({ type: 'JOIN_ROOM', requestId: `j2_${i}`, serverTime: 0, payload: { roomCode: roomCode2, nickname: ['南', '西', '北'][i - 1] } });
-      await clients[i]!.waitMsg('JOIN_ROOM');
-    }
-    await sleep(100);
-    for (const c of clients) c.clearQueue();
-
-    for (let i = 0; i < 4; i++) {
-      clients[i]!.send({ type: 'READY', requestId: `r2_${i}`, serverTime: 0, payload: {} });
-    }
-    await sleep(200);
-    for (const c of clients) c.clearQueue();
-
-    clients[0]!.send({ type: 'START_GAME', requestId: 'sg2', serverTime: 0, payload: {} });
-    for (let i = 0; i < 4; i++) {
-      let found = false;
-      for (let t = 0; t < 20; t++) {
-        const m = await clients[i]!.waitMsg('START_GAME');
-        if (m.payload?.view) {
-          clients[i]!.latestView = {
-            myHand: m.payload.view.myHand ?? [],
-            allowedActions: m.payload.view.allowedActions ?? [],
-            turn: m.payload.view.turn ?? -1,
-            phase: m.payload.view.phase ?? '',
-            scores: m.payload.view.scores ?? {},
-          };
-          found = true;
-          break;
-        }
-      }
-      expect(found).toBe(true);
-    }
-    for (const c of clients) c.clearQueue();
-
-    // 第二局快速模拟
-    let round2Ended = false;
-    for (let round = 0; round < 300 && !round2Ended; round++) {
-      for (const c of clients) {
-        const re = c.checkRoundEnd();
-        if (re) round2Ended = true;
-      }
-      if (round2Ended) break;
-
-      for (const c of clients) c.drainView();
-      const turn = clients[0]!.latestView?.turn ?? -1;
-      if (turn < 0) { await sleep(20); continue; }
-
-      const cp = clients[turn]!;
-      const v = cp.latestView;
-      if (v?.allowedActions.includes('PLAY_TILE') && v.myHand.length > 0) {
-        const tile = v.myHand[Math.floor(rng() * v.myHand.length)];
-        cp.send({ type: 'PLAY_TILE', requestId: `p2_${round}`, serverTime: 0, payload: { tile } });
-        await sleep(80);
-        for (const c of clients) c.drainView();
-        continue;
-      }
-
-      for (let i = 0; i < 4; i++) {
-        const av = clients[i]!.latestView;
-        if (av && av.turn === turn && i !== turn) {
-          const act = av.allowedActions;
-          if (act.length > 0 && !act.includes('PLAY_TILE') && act.includes('PASS')) {
-            clients[i]!.send({ type: 'PASS', requestId: `ps2_${round}_${i}`, serverTime: 0, payload: {} });
-          }
-        }
-      }
-      await sleep(60);
-      for (const c of clients) c.drainView();
-    }
-
-    expect(round2Ended).toBe(true);
-    const scoresAfterR2 = { ...clients[0]!.roundEndMsg?.payload?.scores };
-    const totalScore2 = Object.values(scoresAfterR2 as Record<number, number>).reduce((a, b) => a + b, 0);
-    expect(totalScore2).toBe(0);
-
-    console.log(`第二局结束，分数: ${JSON.stringify(scoresAfterR2)}`);
-  });
-
-  it('手动结束游戏后拒绝动作', async () => {
-    await server._reset();
-
-    const raws = await Promise.all([connect(), connect(), connect(), connect()]);
-    clients = [
-      new SimClient(raws[0]!, '东'),
-      new SimClient(raws[1]!, '南'),
-      new SimClient(raws[2]!, '西'),
-      new SimClient(raws[3]!, '北'),
-    ];
-
-    clients[0]!.send({ type: 'CREATE_ROOM', requestId: 'cr', serverTime: 0, payload: { nickname: '东' } });
-    const crResp = await clients[0]!.waitMsg('CREATE_ROOM');
-    const roomCode: string = crResp.payload.room.roomCode;
-
-    for (let i = 1; i <= 3; i++) {
-      clients[i]!.send({ type: 'JOIN_ROOM', requestId: `j${i}`, serverTime: 0, payload: { roomCode, nickname: ['南', '西', '北'][i - 1] } });
-      await clients[i]!.waitMsg('JOIN_ROOM');
-    }
-    await sleep(100);
-    for (const c of clients) c.clearQueue();
-
-    for (let i = 0; i < 4; i++) {
-      clients[i]!.send({ type: 'READY', requestId: `r${i}`, serverTime: 0, payload: {} });
-    }
-    await sleep(200);
-    for (const c of clients) c.clearQueue();
-
-    clients[0]!.send({ type: 'START_GAME', requestId: 'sg', serverTime: 0, payload: {} });
-    for (let i = 0; i < 4; i++) {
-      let found = false;
-      for (let t = 0; t < 20; t++) {
-        const m = await clients[i]!.waitMsg('START_GAME');
-        if (m.payload?.view) {
-          clients[i]!.latestView = {
-            myHand: m.payload.view.myHand ?? [],
-            allowedActions: m.payload.view.allowedActions ?? [],
-            turn: m.payload.view.turn ?? -1,
-            phase: m.payload.view.phase ?? '',
-            scores: m.payload.view.scores ?? {},
-          };
-          found = true;
-          break;
-        }
-      }
-      expect(found).toBe(true);
-    }
-    for (const c of clients) c.clearQueue();
-
-    // 快速打到结束
-    let ended = false;
-    for (let round = 0; round < 300 && !ended; round++) {
-      for (const c of clients) {
-        const re = c.checkRoundEnd();
-        if (re) ended = true;
-      }
-      if (ended) break;
-      for (const c of clients) c.drainView();
-      const turn = clients[0]!.latestView?.turn ?? -1;
-      if (turn < 0) { await sleep(20); continue; }
-
-      const cp = clients[turn]!;
-      const v = cp.latestView;
-      if (v?.allowedActions.includes('PLAY_TILE') && v.myHand.length > 0) {
-        const tile = v.myHand[Math.floor(rng() * v.myHand.length)];
-        cp.send({ type: 'PLAY_TILE', requestId: `p${round}`, serverTime: 0, payload: { tile } });
-        await sleep(80);
-        for (const c of clients) c.drainView();
-        continue;
-      }
-      for (let i = 0; i < 4; i++) {
-        const av = clients[i]!.latestView;
-        if (av && av.turn === turn && i !== turn && av.allowedActions.length > 0 && !av.allowedActions.includes('PLAY_TILE') && av.allowedActions.includes('PASS')) {
-          clients[i]!.send({ type: 'PASS', requestId: `ps${round}_${i}`, serverTime: 0, payload: {} });
-        }
-      }
-      await sleep(60);
-      for (const c of clients) c.drainView();
-    }
-
-    expect(ended).toBe(true);
-
-    // 对局结束后，尝试出牌应被拒绝
-    for (const c of clients) c.clearQueue();
-    clients[0]!.send({ type: 'PLAY_TILE', requestId: 'bad', serverTime: 0, payload: { tile: { suit: 'm', rank: 1 } } });
-    await sleep(200);
-
-    let gotError = false;
-    for (const c of clients) {
-      for (const m of c.msgQueue) {
-        if (m.error && m.error.code === 'ILLEGAL_ACTION') {
-          gotError = true;
-        }
-      }
-    }
-    expect(gotError).toBe(true);
   });
 });
