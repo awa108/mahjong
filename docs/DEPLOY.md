@@ -5,6 +5,57 @@
 - 腾讯云 CloudBase 环境开通（按量付费）
 - Node.js 18+ / npm（workspaces）
 
+## 配置文件初始化
+
+在开始部署前，需要先创建本地环境变量文件：
+
+```bash
+# 在项目根目录执行
+cp .env.example .env.local
+cp server/.env.example server/.env.local
+```
+
+然后编辑 `server/.env.local`，填入真实值：
+
+```
+WX_APPID=wx1949e92d543a20ae          # 你的小程序 AppID
+WX_APPSECRET=your-actual-secret       # 从微信公众平台获取（机密！）
+TCB_ENV_ID=cloud1-d9ggcgqxc02c1aea9  # CloudBase 环境 ID
+PORT=3000
+```
+
+> ⚠️ `server/.env.local` 已被 `.gitignore` 排除，不会提交到 git。**切勿**将 AppSecret 写入 `miniprogram/config/index.ts` 或任何前端文件。
+
+### 配置文件说明
+
+| 文件 | 是否提交 git | 说明 |
+|------|-------------|------|
+| `.env.example` | ✅ 提交 | 根环境变量模板，不含真实值 |
+| `server/.env.example` | ✅ 提交 | 服务端模板，不含真实值 |
+| `.env.local` | ❌ gitignore | 实际环境变量（本地开发用） |
+| `server/.env.local` | ❌ gitignore | 服务端实际密钥（**机密**） |
+| `miniprogram/config/index.ts` | ✅ 提交 | 小程序前端配置（URL、环境 ID，**无密钥**） |
+
+### 生产环境 URL 配置
+
+编辑 `miniprogram/config/index.ts` 中的生产环境 URL：
+
+```typescript
+// 开发环境 → 自动走 localhost
+// 生产环境 → 替换为 CloudBase 云托管实际分配的域名
+export const API_BASE_URL =
+  APP_ENV === 'production'
+    ? 'https://your-service-xxx.ap-shanghai.tcb-api.tencentcloudapi.com/api'
+    : 'http://localhost:3000/api';
+
+export const WS_URL =
+  APP_ENV === 'production'
+    ? 'wss://your-service-xxx.ap-shanghai.tcb-api.tencentcloudapi.com/ws'
+    : 'ws://localhost:3000/ws';
+```
+
+CloudBase 云托管域名可在 [CloudBase 控制台](https://console.cloud.tencent.com/tcb) → 云托管 → 服务详情中查看。
+
 ## 服务端部署（CloudBase 云托管）
 
 1. `npm run build -w @mahjong/server`
@@ -241,15 +292,26 @@ WS:   localhost:3000/ws   → wss://api.example.com/ws
 
 ### 2.3 环境变量配置方式
 
-服务端通过 `process.env` 读取环境变量。有两种配置方式：
+服务端通过 `process.env` 读取环境变量。项目提供了模板文件：
 
-- **CloudBase 云托管**：在控制台「服务设置 → 环境变量」中添加
-- **自建服务器**：创建 `.env` 文件（不提交到 git），或用 PM2 的 `ecosystem.config.js` 注入
+- `server/.env.example` — 服务端环境变量模板（可提交 git）
+- `server/.env.local` — 实际环境变量（gitignore，**不提交**）
+
+**本地开发：**
+
+```bash
+cp server/.env.example server/.env.local
+# 编辑 server/.env.local 填入真实值
+```
+
+**CloudBase 云托管**：在控制台「服务设置 → 环境变量」中添加（参考 `server/.env.example` 中的变量名）。
+
+**自建服务器**：将 `server/.env.local` 部署到服务器，或用 PM2 的 `ecosystem.config.js` 注入。
 
 ```
 WX_APPID=wx1949e92d543a20ae
 WX_APPSECRET=your-app-secret-here
-TCB_ENV_ID=your-cloudbase-env-id
+TCB_ENV_ID=cloud1-d9ggcgqxc02c1aea9
 PORT=3000
 ```
 
@@ -497,29 +559,39 @@ curl -X POST http://localhost:3000/api/login/mock \
 
 ## 8. 环境变量清单
 
-### 服务端（server 运行时）
+### 配置文件对照
+
+| 文件 | 包含内容 | 提交 git |
+|------|---------|----------|
+| `.env.example` | 根环境变量模板 | ✅ |
+| `server/.env.example` | 服务端环境变量模板 | ✅ |
+| `.env.local` | 本地实际环境变量 | ❌ |
+| `server/.env.local` | 服务端实际密钥 | ❌ |
+| `miniprogram/config/index.ts` | 前端 URL / 环境 ID | ✅ |
+
+### 服务端（server/.env.local 或云环境变量）
 
 | 变量名 | 必需 | 说明 | 示例 |
 |--------|------|------|------|
 | `PORT` | 否 | 监听端口，默认 3000 | `3000` |
-| `WX_APPID` | 生产必需 | 小程序 AppID | `wx1949...` |
+| `WX_APPID` | 生产必需 | 小程序 AppID | `wx1949e92d543a20ae` |
 | `WX_APPSECRET` | 生产必需 | 小程序 AppSecret（仅服务端） | 从微信后台获取 |
-| `TCB_ENV_ID` | 生产必需 | CloudBase 环境 ID | `your-env-abc123` |
+| `TCB_ENV_ID` | 生产必需 | CloudBase 环境 ID | `cloud1-d9ggcgqxc02c1aea9` |
 
 ### 小程序端（miniprogram/config/index.ts）
 
 | 变量名 | 开发值 | 生产值 |
 |--------|--------|--------|
-| `API_BASE_URL` | `http://localhost:3000/api` | `https://api.example.com/api` |
-| `WS_URL` | `ws://localhost:3000/ws` | `wss://api.example.com/ws` |
-| `CLOUD_ENV_ID` | `''` | 实际 CloudBase 环境 ID |
+| `API_BASE_URL` | `http://localhost:3000/api` | `https://your-service-xxx.tcb-api.tencentcloudapi.com/api` |
+| `WS_URL` | `ws://localhost:3000/ws` | `wss://your-service-xxx.tcb-api.tencentcloudapi.com/ws` |
+| `CLOUD_ENV_ID` | `cloud1-d9ggcgqxc02c1aea9` | 实际 CloudBase 环境 ID |
 
 ### 不需要在前端配置的（安全红线）
 
 这些值 **永远不要** 出现在 `miniprogram/config/index.ts` 或其他前端文件中：
 
-- ❌ `WX_APPSECRET` — 仅 server 环境变量
-- ❌ `JWT_SECRET` — 仅 server 环境变量（未来迁移 JWT 时）
+- ❌ `WX_APPSECRET` — 仅 `server/.env.local` 或云环境变量
+- ❌ `JWT_SECRET` — 仅 `server/.env.local` 或云环境变量（未来迁移 JWT 时）
 - ❌ 数据库连接字符串 — 仅 server 环境变量
 - ❌ CloudBase admin SDK 密钥 — 仅 server 环境变量
 - ❌ 任何对称加密密钥

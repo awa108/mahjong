@@ -236,6 +236,34 @@ HTTP: localhost:3000/api        → https://api.example.com/api
 WS:   localhost:3000/ws         → wss://api.example.com/ws
 ```
 
+### 配置文件说明
+
+项目使用 `.env.local` 管理敏感配置（不提交到 git）：
+
+| 文件 | 用途 |
+|------|------|
+| `.env.example` | 项目根环境变量模板（参考用，可提交） |
+| `server/.env.example` | 服务端环境变量模板（参考用，可提交） |
+| `.env.local` | 实际环境变量（gitignore，**不提交**） |
+| `server/.env.local` | 服务端实际环境变量（gitignore，**不提交**） |
+| `miniprogram/config/index.ts` | 小程序前端配置（**不含密钥**，可提交） |
+
+**首次配置步骤**：
+
+```bash
+# 1. 从模板创建本地环境变量文件
+cp .env.example .env.local
+cp server/.env.example server/.env.local
+
+# 2. 编辑 server/.env.local，填入真实值
+#    - WX_APPSECRET：从微信公众平台 → 开发管理 → 开发设置 → AppSecret 获取
+#    - 其他变量按需修改
+
+# 3. 编辑 miniprogram/config/index.ts
+#    - 生产环境 URL 替换为 CloudBase 云托管实际域名
+#    - CLOUD_ENV_ID 已预填，如使用不同环境请修改
+```
+
 ### 环境变量（服务端）
 
 | 变量名 | 必需 | 说明 |
